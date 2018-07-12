@@ -2,6 +2,9 @@ package com.vcc.bigdata.condition;
 
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
+import com.vcc.bigdata.platform.elastic.ElasticBulkInsert;
+import org.elasticsearch.action.search.SearchResponse;
+import org.elasticsearch.client.Client;
 import org.elasticsearch.index.query.QueryBuilder;
 
 /**
@@ -33,10 +36,6 @@ public abstract class AdvanceCondition implements Condition<QueryBuilder>{
         this.bool = bool;
     }
 
-    public static String getMUST() {
-        return MUST;
-    }
-
     public String getName() {
         return name;
     }
@@ -44,4 +43,11 @@ public abstract class AdvanceCondition implements Condition<QueryBuilder>{
     public void setName(String name) {
         this.name = name;
     }
+
+    public abstract void saveResultOr(ElasticBulkInsert bulkInsert, int bulkSize, String index);
+
+    public abstract boolean checkConditionMust(Client client, String id);
+
+    public abstract SearchResponse getSatifyGuidS();
+
 }
