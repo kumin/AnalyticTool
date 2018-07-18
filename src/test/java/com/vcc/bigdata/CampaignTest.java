@@ -5,9 +5,9 @@ import com.vcc.bigdata.campaign.Campaign;
 import com.vcc.bigdata.campaign.CampaignRepo;
 import com.vcc.bigdata.campaign.ElasticCampaignRepo;
 import com.vcc.bigdata.common.config.Configuration;
-import com.vcc.bigdata.condition.AdvanceCondition;
-import com.vcc.bigdata.condition.GroupCondition;
-import com.vcc.bigdata.condition.InteractCondition;
+import com.vcc.bigdata.condition.escondition.AdvanceCondition;
+import com.vcc.bigdata.condition.escondition.GroupCondition;
+import com.vcc.bigdata.condition.escondition.InteractCondition;
 
 import java.util.ArrayList;
 import java.util.Date;
@@ -28,16 +28,22 @@ public class CampaignTest {
 
 //        List<BasicCondition> bsConditions1 = new ArrayList<>();
 //        GroupCondition<BasicCondition>  group1 = new GroupCondition<>();
-//        BasicCondition bsCondition1 = new BasicCondition();
 //
-//        bsCondition1.setBool("should");
+//        BasicCondition bsCondition = new BasicCondition();
+//        bsCondition.setBool(BasicCondition.SHOULD);
+//        bsCondition.setField("attr.name");
+//        bsCondition.setValue("thời trang");
+//        bsCondition.setQuery(BasicCondition.MATCH_PHRASE);
+//        bsConditions1.add(bsCondition);
+//
+//        BasicCondition bsCondition1 = new BasicCondition();
+//        bsCondition1.setBool(BasicCondition.SHOULD);
 //        bsCondition1.setField("attr.name");
 //        bsCondition1.setValue("fashion");
 //        bsCondition1.setQuery(BasicCondition.MATCH_PHRASE);
 //        bsConditions1.add(bsCondition1);
 //        group1.setBool(GroupCondition.AND);
 //        group1.setConditions(bsConditions1);
-//
 //
 //        List<BasicCondition> bsConditions2 = new ArrayList<>();
 //        GroupCondition<BasicCondition> group2 = new GroupCondition<>();
@@ -56,6 +62,8 @@ public class CampaignTest {
 //
 //        group2.setBool(GroupCondition.AND);
 //        group2.setConditions(bsConditions2);
+//
+//        campaign.setGroupBsConditions(ImmutableList.of(group1, group2));
 
         GroupCondition<AdvanceCondition> group3 = new GroupCondition<>();
         List<AdvanceCondition> adConditions = new ArrayList<>();
@@ -66,6 +74,15 @@ public class CampaignTest {
         adCondition.setValue("696877660340515");
         adCondition.setName(AdvanceCondition.INTERACT);
         adConditions.add(adCondition);
+
+//        InteractCondition adCondition2 = new InteractCondition();
+//        adCondition2.setBool(InteractCondition.SHOULD);
+//        adCondition2.setSource(InteractCondition.FANPAGE);
+//        adCondition2.setType(InteractCondition.POST);
+//        adCondition2.setValue("696877660340515");
+//        adCondition2.setName(AdvanceCondition.INTERACT);
+//        adConditions.add(adCondition2);
+
         group3.setBool(GroupCondition.AND);
         group3.setConditions(adConditions);
         campaign.setGroupAdCondition(ImmutableList.of(group3));

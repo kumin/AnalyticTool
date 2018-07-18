@@ -3,9 +3,9 @@ package com.vcc.bigdata.campaign;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.vcc.bigdata.condition.AdvanceCondition;
-import com.vcc.bigdata.condition.BasicCondition;
-import com.vcc.bigdata.condition.GroupCondition;
+import com.vcc.bigdata.condition.escondition.AdvanceCondition;
+import com.vcc.bigdata.condition.escondition.BasicCondition;
+import com.vcc.bigdata.condition.escondition.GroupCondition;
 
 import java.util.ArrayList;
 import java.util.Date;

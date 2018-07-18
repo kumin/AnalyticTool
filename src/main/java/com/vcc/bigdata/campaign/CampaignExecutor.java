@@ -5,9 +5,9 @@ import com.vcc.bigdata.common.config.Properties;
 import com.vcc.bigdata.common.lifecycle.LoopableLifeCycle;
 import com.vcc.bigdata.common.tasks.TaskManager;
 import com.vcc.bigdata.common.utils.ThreadPool;
-import com.vcc.bigdata.condition.AdvanceCondition;
-import com.vcc.bigdata.condition.BasicCondition;
-import com.vcc.bigdata.condition.GroupCondition;
+import com.vcc.bigdata.condition.escondition.AdvanceCondition;
+import com.vcc.bigdata.condition.escondition.BasicCondition;
+import com.vcc.bigdata.condition.escondition.GroupCondition;
 import com.vcc.bigdata.model.ElasticConstant;
 import com.vcc.bigdata.platform.elastic.ElasticBulkInsert;
 import org.elasticsearch.action.bulk.BulkResponse;
@@ -21,6 +21,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
@@ -100,12 +101,12 @@ public class CampaignExecutor extends LoopableLifeCycle {
             });
 
             /*
-              Query type of profile
+              Query profile
              */
             if (mainQuery.hasClauses()) {
                 queryBasicConditionHasClause(mainQuery, campaign, mustConditions, shouldConditions);
-            }
-            else queryBasicConditionHasNoClause(campaign, mustConditions, shouldConditions);
+            } else queryBasicConditionHasNoClause(campaign, mustConditions, shouldConditions);
+
             Campaign campaignProcessed = new Campaign();
             campaignProcessed.setStatus(Campaign.PROCESSED);
             campaignRepo.updateCampaign(campaign.id(), campaignProcessed).get();
@@ -115,18 +116,20 @@ public class CampaignExecutor extends LoopableLifeCycle {
     }
 
     public boolean checkAdvanceConditionMust(List<GroupCondition<AdvanceCondition>> groupConditions, String id) {
-        boolean check = true;
+        boolean checkMust = true;
+        boolean checkShould = true;
+
         for (GroupCondition<AdvanceCondition> group : groupConditions) {
             for (AdvanceCondition condition : group.getConditions()) {
                 if (condition.getBool().equals(AdvanceCondition.MUST))
-                    check = check && condition.checkConditionMust(bulkInsert.client(), id);
-                else check = check || condition.checkConditionMust(bulkInsert.client(), id);
+                    checkMust = checkMust && condition.checkConditionMust(bulkInsert.client(), id);
+                else checkShould = checkShould && condition.checkConditionMust(bulkInsert.client(), id);
             }
         }
-        return check;
+        return (checkMust || checkShould);
     }
 
-    public void solveAdvanceConditionOr(List<GroupCondition<AdvanceCondition>> groupConditions, String index) {
+    public void solveAdvanceConditionOr(List<GroupCondition<AdvanceCondition>> groupConditions, Campaign campaign) {
         List<AdvanceCondition> mustConditions = new ArrayList<>();
         List<AdvanceCondition> shouldConditions = new ArrayList<>();
 
@@ -136,14 +139,16 @@ public class CampaignExecutor extends LoopableLifeCycle {
                 else shouldConditions.add(condition);
             }
 
-            shouldConditions.forEach(condition -> {
-                condition.saveResultOr(bulkInsert, bulkSize, index);
-            });
+            shouldConditions.forEach(condition -> condition.saveResultOr(bulkInsert, bulkSize
+                    , ElasticConstant.PREFIX_CAMPAIGN_INDEX + campaign.getName() + "-" + campaign.id()
+                    , getQueryTypeProfile(campaign)));
 
-
+            if (mustConditions.size() == 0) return;
+            AdvanceCondition firstCondition = mustConditions.get(0);
+            mustConditions.remove(0);
+            SearchResponse sr = firstCondition.getSatifyGuids(bulkInsert.client());
+            saveResultConditionMust(sr, Collections.singletonList(new GroupCondition<>(mustConditions)), campaign);
         });
-
-
     }
 
     public void getQueryBasicCondition(BoolQueryBuilder mainQuery, Campaign campaign) {
@@ -185,12 +190,22 @@ public class CampaignExecutor extends LoopableLifeCycle {
         } else mainQuery.must(QueryBuilders.matchPhraseQuery("attr.tag", "person"));
     }
 
+    public QueryBuilder getQueryTypeProfile(Campaign campaign) {
+        if (campaign.getProfileType().equals("org")) {
+            return QueryBuilders.boolQuery()
+                    .should(QueryBuilders.matchPhraseQuery("attr.tag", "org"))
+                    .should(QueryBuilders.matchPhraseQuery("attr.tag", "fbpage"))
+                    .should(QueryBuilders.matchPhraseQuery("attr.tag", "fbgroup"))
+                    .should(QueryBuilders.matchPhraseQuery("attr.tag", "school"))
+                    .should(QueryBuilders.matchPhraseQuery("attr.tag", "company"));
+        } else return QueryBuilders.matchPhraseQuery("attr.tag", "person");
+    }
+
     public void queryBasicConditionHasClause(BoolQueryBuilder mainQuery, Campaign campaign,
                                              List<GroupCondition<AdvanceCondition>> mustConditions,
-                                             List<GroupCondition<AdvanceCondition>> shouldConditions){
+                                             List<GroupCondition<AdvanceCondition>> shouldConditions) {
         getQueryTypeProfile(mainQuery, campaign);
         System.out.println(mainQuery);
-
         SearchResponse sr = bulkInsert.client().prepareSearch(ElasticConstant.PROFILES_INDEX)
                 .setTypes("profiles")
                 .setQuery(mainQuery)
@@ -201,18 +216,19 @@ public class CampaignExecutor extends LoopableLifeCycle {
 
         while (isNotCanceled()) {
             for (SearchHit hit : sr.getHits()) {
-                if (checkAdvanceConditionMust(mustConditions, hit.getId())) ;
-                bulkInsert.addRequest(ElasticConstant.PREFIX_CAMPAIGN_INDEX
-                                + campaign.getName() + "-"
-                                + campaign.id()
-                        , "profiles"
-                        , hit.id()
-                        , hit.getSource());
+                if (checkAdvanceConditionMust(mustConditions, hit.getId())) {
+                    bulkInsert.addRequest(ElasticConstant.PREFIX_CAMPAIGN_INDEX
+                                    + campaign.getName() + "-"
+                                    + campaign.id()
+                            , "profiles"
+                            , hit.id()
+                            , hit.getSource());
 
-                if (bulkInsert.bulkSize() > bulkSize) {
-                    BulkResponse response = bulkInsert.submitBulk();
-                    logger.info(Thread.currentThread().getName() + " - Submit bulk took "
-                            + response.getTook().getSecondsFrac());
+                    if (bulkInsert.bulkSize() > bulkSize) {
+                        BulkResponse response = bulkInsert.submitBulk();
+                        logger.info(Thread.currentThread().getName() + " - Submit bulk took "
+                                + response.getTook().getSecondsFrac());
+                    }
                 }
             }
             sr = bulkInsert.client().prepareSearchScroll(sr.getScrollId()).setScroll(new TimeValue(6000000))
@@ -220,17 +236,78 @@ public class CampaignExecutor extends LoopableLifeCycle {
             if (sr.getHits().getHits().length == 0) break;
         }
 
-        solveAdvanceConditionOr(shouldConditions,
-                ElasticConstant.PREFIX_CAMPAIGN_INDEX + campaign.getName() + "-" + campaign.id());
+        solveAdvanceConditionOr(shouldConditions, campaign);
     }
 
     public void queryBasicConditionHasNoClause(Campaign campaign,
-                                              List<GroupCondition<AdvanceCondition>> mustConditions,
-                                              List<GroupCondition<AdvanceCondition>> shouldConditions){
+                                               List<GroupCondition<AdvanceCondition>> mustConditions,
+                                               List<GroupCondition<AdvanceCondition>> shouldConditions) {
+        logger.info("query advance condition (has no basic condition)");
+        solveAdvanceConditionOr(shouldConditions, campaign);
 
+        /*
+        deal with advance condition group must
+        It's really hard job.
+         */
 
+        if (mustConditions.isEmpty()) return;
+        List<AdvanceCondition> musts = new ArrayList<>();
+        List<AdvanceCondition> shoulds = new ArrayList<>();
 
+        GroupCondition<AdvanceCondition> firstGroup = mustConditions.get(0);
+        mustConditions.remove(0);
+        firstGroup.getConditions().forEach(condition -> {
+            if (condition.getBool().equals(AdvanceCondition.MUST)) musts.add(condition);
+            else shoulds.add(condition);
+        });
+
+        shoulds.forEach(condition -> {
+            SearchResponse sr = condition.getSatifyGuids(bulkInsert.client());
+            saveResultConditionMust(sr, mustConditions, campaign);
+        });
+        if (musts.isEmpty()) return;
+        AdvanceCondition firstMustCondition = musts.get(0);
+        musts.remove(0);
+        mustConditions.add(new GroupCondition<>(musts));
+        SearchResponse sr = firstMustCondition.getSatifyGuids(bulkInsert.client());
+        saveResultConditionMust(sr, mustConditions, campaign);
     }
+
+    public void saveResultConditionMust(SearchResponse sr
+            , List<GroupCondition<AdvanceCondition>> groups
+            , Campaign campaign) {
+        logger.info("save result with condition must");
+        System.out.println(sr.getHits().totalHits());
+        while (isNotCanceled()) {
+            for (SearchHit hit : sr.getHits()) {
+                String hitId = hit.id().split("_")[0];
+                if (checkAdvanceConditionMust(groups, hit.getId())) {
+                    SearchHit hit1 = AdvanceCondition.getProfile(bulkInsert.client(), hitId
+                            , getQueryTypeProfile(campaign));
+
+                    if (hit1 != null) {
+                        System.out.println(hit1.id());
+                        bulkInsert.addRequest(ElasticConstant.PREFIX_CAMPAIGN_INDEX
+                                        + campaign.getName() + "-"
+                                        + campaign.id()
+                                , ElasticConstant.PROFILES_TYPE
+                                , hit1.id()
+                                , hit1.getSource());
+
+                        if (bulkInsert.bulkSize() > bulkSize) {
+                            BulkResponse response = bulkInsert.submitBulk();
+                            logger.info(Thread.currentThread().getName() + " - Submit bulk took "
+                                    + response.getTook().getSecondsFrac());
+                        }
+                    }
+                }
+            }
+            sr = bulkInsert.client().prepareSearchScroll(sr.getScrollId()).setScroll(new TimeValue(6000000))
+                    .execute().actionGet();
+            if (sr.getHits().getHits().length == 0) break;
+        }
+    }
+
     public static void main(String[] args) {
         Properties props = new Configuration().toSubProperties("analytic-tool");
         CampaignExecutor ce = new CampaignExecutor(props);

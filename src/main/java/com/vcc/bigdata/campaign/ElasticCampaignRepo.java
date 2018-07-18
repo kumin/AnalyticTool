@@ -79,7 +79,7 @@ public class ElasticCampaignRepo implements CampaignRepo {
     public Future<IndexResponse> addCampaign(Campaign campaign) {
         long camId = idGenerator.generate();
         IndexRequest indexRequest = new IndexRequest(ES_INDEX, ES_TYPE, String.valueOf(camId))
-                .source((campaign));
+                .source(getJsonSource(campaign));
 
         return client.index(indexRequest);
     }

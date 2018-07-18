@@ -1,7 +1,8 @@
-package com.vcc.bigdata.condition;
+package com.vcc.bigdata.condition.escondition;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
+import com.vcc.bigdata.condition.Condition;
 import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
 

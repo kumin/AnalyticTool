@@ -1,8 +1,8 @@
-package com.vcc.bigdata.condition;
+package com.vcc.bigdata.condition.escondition;
 
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
-import org.elasticsearch.index.query.QueryBuilder;
+import com.vcc.bigdata.condition.Condition;
 
 import java.util.List;
 
@@ -19,6 +19,12 @@ public class GroupCondition <T extends Condition>{
     private String bool;
     private List<T> conditions;
 
+    public GroupCondition(List<T> conditions){
+        this.conditions = conditions;
+    }
+    public GroupCondition(){
+
+    }
     public String getBool() {
         return bool;
     }
@@ -33,9 +39,5 @@ public class GroupCondition <T extends Condition>{
 
     public void setConditions(List<T> conditions) {
         this.conditions = conditions;
-    }
-
-    public void getQuery(QueryBuilder mainQuery){
-
     }
 }
