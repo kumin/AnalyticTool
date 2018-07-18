@@ -38,6 +38,8 @@ public class Campaign {
 
     private String status;
 
+    private String host;
+
     public Campaign(String id) {
         this.id = id;
     }
@@ -102,5 +104,11 @@ public class Campaign {
         this.status = status;
     }
 
+    public String getHost() {
+        return host;
+    }
 
+    public void setHost(String host) {
+        this.host = host;
+    }
 }

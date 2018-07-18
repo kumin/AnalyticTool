@@ -5,6 +5,8 @@ import com.vcc.bigdata.common.config.Properties;
 import com.vcc.bigdata.common.lifecycle.LoopableLifeCycle;
 import com.vcc.bigdata.common.tasks.TaskManager;
 import com.vcc.bigdata.common.utils.ThreadPool;
+import com.vcc.bigdata.common.utils.Threads;
+import com.vcc.bigdata.common.utils.Utils;
 import com.vcc.bigdata.condition.escondition.AdvanceCondition;
 import com.vcc.bigdata.condition.escondition.BasicCondition;
 import com.vcc.bigdata.condition.escondition.GroupCondition;
@@ -22,9 +24,12 @@ import org.slf4j.LoggerFactory;
 
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.Date;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.TimeUnit;
 
 
 /**
@@ -36,6 +41,7 @@ public class CampaignExecutor extends LoopableLifeCycle {
     private final Logger logger = LoggerFactory.getLogger(this.getClass());
     private CampaignRepo campaignRepo;
     private Properties props;
+    private ExecutorService executor;
     private TaskManager taskManager;
     private ElasticBulkInsert bulkInsert;
     private int bulkSize;
@@ -49,7 +55,7 @@ public class CampaignExecutor extends LoopableLifeCycle {
         campaignRepo = new ElasticCampaignRepo(this.props);
         bulkSize = props.getIntProperty("bulkSize", 5);
         int nThread = props.getIntProperty("nthread", Runtime.getRuntime().availableProcessors());
-        ExecutorService executor = ThreadPool.builder()
+        executor = ThreadPool.builder()
                 .setCoreSize(nThread)
                 .setQueueSize(10)
                 .setNamePrefix("query campaign")
@@ -76,6 +82,11 @@ public class CampaignExecutor extends LoopableLifeCycle {
         }
     }
 
+    @Override
+    protected void onStop() {
+        logger.info("Waiting for all workers stopped...");
+        Threads.stopThreadPool(executor, 5, TimeUnit.SECONDS);
+    }
     /**
      * Just execute query on elasticsearch
      *
@@ -83,6 +94,14 @@ public class CampaignExecutor extends LoopableLifeCycle {
      */
     private void queryCampaign(Campaign campaign) {
         try {
+            /*
+            update campaign status
+             */
+            Campaign campaignPrcessing = new Campaign();
+            campaignPrcessing.setStatus(Campaign.PROCESSING);
+            campaignPrcessing.setHost(Utils.getHostName());
+            campaignRepo.updateCampaign(campaign.id(), campaignPrcessing).get();
+
             BoolQueryBuilder mainQuery = new BoolQueryBuilder();
 
             /*
@@ -112,9 +131,22 @@ public class CampaignExecutor extends LoopableLifeCycle {
             campaignRepo.updateCampaign(campaign.id(), campaignProcessed).get();
         } catch (Throwable t) {
             t.printStackTrace();
+            if (isCanceled()){
+                Campaign campaignProcessed = new Campaign();
+                campaignProcessed.setStatus(Campaign.PROCESSED);
+                campaignRepo.updateCampaign(campaign.id(), campaignProcessed);
+
+                throw  new RuntimeException("Job canceled by user!");
+            }
         }
     }
 
+    /**
+     * Elastic without join so have to check every advance condition group MUST
+     * @param groupConditions
+     * @param id
+     * @return
+     */
     public boolean checkAdvanceConditionMust(List<GroupCondition<AdvanceCondition>> groupConditions, String id) {
         boolean checkMust = true;
         boolean checkShould = true;
@@ -129,6 +161,11 @@ public class CampaignExecutor extends LoopableLifeCycle {
         return (checkMust || checkShould);
     }
 
+    /**
+     * With advance condition OR just insert into campaign's profile
+     * @param groupConditions
+     * @param campaign
+     */
     public void solveAdvanceConditionOr(List<GroupCondition<AdvanceCondition>> groupConditions, Campaign campaign) {
         List<AdvanceCondition> mustConditions = new ArrayList<>();
         List<AdvanceCondition> shouldConditions = new ArrayList<>();
@@ -151,6 +188,11 @@ public class CampaignExecutor extends LoopableLifeCycle {
         });
     }
 
+    /**
+     *
+     * @param mainQuery
+     * @param campaign
+     */
     public void getQueryBasicCondition(BoolQueryBuilder mainQuery, Campaign campaign) {
         campaign.getGroupBsConditions().forEach(conditions -> {
             BoolQueryBuilder bsBoolQueries = new BoolQueryBuilder();
@@ -217,12 +259,15 @@ public class CampaignExecutor extends LoopableLifeCycle {
         while (isNotCanceled()) {
             for (SearchHit hit : sr.getHits()) {
                 if (checkAdvanceConditionMust(mustConditions, hit.getId())) {
+                    Map<String, Object> source = hit.getSource();
+                    source.put("inserted_time",
+                            Collections.singletonList(Collections.singletonMap("value",new Date())));
                     bulkInsert.addRequest(ElasticConstant.PREFIX_CAMPAIGN_INDEX
                                     + campaign.getName() + "-"
                                     + campaign.id()
                             , "profiles"
                             , hit.id()
-                            , hit.getSource());
+                            , source);
 
                     if (bulkInsert.bulkSize() > bulkSize) {
                         BulkResponse response = bulkInsert.submitBulk();
@@ -277,7 +322,6 @@ public class CampaignExecutor extends LoopableLifeCycle {
             , List<GroupCondition<AdvanceCondition>> groups
             , Campaign campaign) {
         logger.info("save result with condition must");
-        System.out.println(sr.getHits().totalHits());
         while (isNotCanceled()) {
             for (SearchHit hit : sr.getHits()) {
                 String hitId = hit.id().split("_")[0];
@@ -286,13 +330,15 @@ public class CampaignExecutor extends LoopableLifeCycle {
                             , getQueryTypeProfile(campaign));
 
                     if (hit1 != null) {
-                        System.out.println(hit1.id());
+                        Map<String, Object> source = hit1.getSource();
+                        source.put("inserted_time",
+                                Collections.singletonList(Collections.singletonMap("value",new Date())));
                         bulkInsert.addRequest(ElasticConstant.PREFIX_CAMPAIGN_INDEX
                                         + campaign.getName() + "-"
                                         + campaign.id()
                                 , ElasticConstant.PROFILES_TYPE
                                 , hit1.id()
-                                , hit1.getSource());
+                                , source);
 
                         if (bulkInsert.bulkSize() > bulkSize) {
                             BulkResponse response = bulkInsert.submitBulk();

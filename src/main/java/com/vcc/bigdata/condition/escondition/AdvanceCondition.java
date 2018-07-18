@@ -5,12 +5,19 @@ import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.vcc.bigdata.condition.Condition;
 import com.vcc.bigdata.model.ElasticConstant;
 import com.vcc.bigdata.platform.elastic.ElasticBulkInsert;
+import org.elasticsearch.action.bulk.BulkResponse;
 import org.elasticsearch.action.search.SearchResponse;
 import org.elasticsearch.client.Client;
 import org.elasticsearch.index.query.BoolQueryBuilder;
 import org.elasticsearch.index.query.QueryBuilder;
 import org.elasticsearch.index.query.QueryBuilders;
 import org.elasticsearch.search.SearchHit;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.Collections;
+import java.util.Date;
+import java.util.Map;
 
 /**
  * @author: kumin on 03/07/2018
@@ -23,6 +30,9 @@ import org.elasticsearch.search.SearchHit;
         @JsonSubTypes.Type(value = InteractCondition.class),
 })
 public abstract class AdvanceCondition implements Condition<QueryBuilder> {
+    private static final Logger logger = LoggerFactory.getLogger(AdvanceCondition.class);
+
+
     public static final String MUST = "must";
     public static final String SHOULD = "should";
 
@@ -70,5 +80,22 @@ public abstract class AdvanceCondition implements Condition<QueryBuilder> {
         if (sr.getHits().getTotalHits() > 0) return sr.getHits().getAt(0);
         else return null;
 
+    }
+
+    public static void saveProfile(ElasticBulkInsert bulkInsert, int bulkSize, String index, SearchHit hit){
+
+        Map<String, Object> source = hit.getSource();
+        source.put("inserted_time",
+                Collections.singletonList(Collections.singletonMap("value",new Date())));
+        bulkInsert.addRequest(index
+                , ElasticConstant.PROFILES_TYPE
+                , hit.id()
+                , source);
+
+        if (bulkInsert.bulkSize() > bulkSize) {
+            BulkResponse response = bulkInsert.submitBulk();
+            logger.info(Thread.currentThread().getName() + " - Submit bulk took "
+                    + response.getTook().getSecondsFrac());
+        }
     }
 }

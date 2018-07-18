@@ -12,6 +12,10 @@ import org.elasticsearch.search.SearchHit;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.Collections;
+import java.util.Date;
+import java.util.Map;
+
 /**
  * @author: kumin on 07/07/2018
  **/
@@ -81,6 +85,9 @@ public class CounterCondition extends AdvanceCondition {
             for (SearchHit hit : sr.getHits()) {
                 SearchHit hit1 = getProfile(client, hit.getId(), profileTypeQuery);
                 if (hit1 != null) {
+                    Map<String, Object> source = hit1.getSource();
+                    source.put("inserted_time",
+                            Collections.singletonList(Collections.singletonMap("value",new Date())));
                     bulkInsert.addRequest(index, ElasticConstant.PROFILES_TYPE, hit1.id(), hit1.getSource());
                     if (bulkInsert.bulkSize() > bulkSize) {
                         BulkResponse response = bulkInsert.submitBulk();

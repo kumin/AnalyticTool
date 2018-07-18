@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.vcc.bigdata.common.config.Properties;
 import com.vcc.bigdata.common.types.IdGenerator;
 import com.vcc.bigdata.common.types.RandomIdGenerator;
+import com.vcc.bigdata.common.utils.Utils;
 import com.vcc.bigdata.platform.elastic.ElasticClientProvider;
 import com.vcc.bigdata.platform.elastic.ElasticConfig;
 import org.elasticsearch.action.index.IndexRequest;
@@ -53,11 +54,16 @@ public class ElasticCampaignRepo implements CampaignRepo {
         ObjectMapper om = new ObjectMapper();
         SearchResponse sr = client.prepareSearch(ES_INDEX)
                 .setTypes("campaign")
-                .setQuery(QueryBuilders.termQuery("status", Campaign.NON_PROCESS))
+                .setQuery(QueryBuilders.boolQuery()
+                                .should(QueryBuilders.termQuery("status", Campaign.NON_PROCESS))
+                                .should(QueryBuilders.boolQuery()
+                                        .must(QueryBuilders.termQuery("status", Campaign.PROCESSING))
+                                        .must(QueryBuilders.termQuery("host.keyword", Utils.getHostName()))))
                 .addSort("created_date", SortOrder.ASC)
                 .setSize(100)
                 .execute()
                 .actionGet();
+
         for (SearchHit hit : sr.getHits()){
             try {
                 Campaign campaign = om.readValue(hit.sourceAsString(), Campaign.class);
